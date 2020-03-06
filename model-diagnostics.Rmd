@@ -1,0 +1,166 @@
+---
+title: "Model Diagnostics"
+author: "Jens Hüsers"
+date: "2/10/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE, message =  F)
+
+library(rstanarm)
+library(bayesplot)
+library(knitr)
+library(tidyverse)
+library(kableExtra)
+
+# Load posterior distributions
+path <- "models/"
+files <- dir(path)
+filepaths <- paste0(path, files)
+
+
+```
+
+# Model Diagnostics
+
+We created Bayesian Logistic Regression models using the open-source **rstanarm** package for the statistical programming language R.
+
+Our model analyzes the relationship between the PEDIS-system, a clinical classification to describe characteristics of Diabetic Foot Ulcers, and amputation, which results from such ulcers as a severe complication. 
+
+We used two distinct amputation definitions: 
+
+1. Any Amputation excluding the lesser toes (This definition entails minor and major amputation, whereas major amputations are on the level of the lower limb or even more proximal, e.g., knee or thigh). 
+
+Furthermore, we scrutinized the impact of an informed prior compared to a non-informed one.
+
+As a result, we created four distinct model.
+
+1. Non-informed with any-amputation
+2. Non-informed with major-amputation
+3. Informed with any-amputation
+4. Informed with major-amputation
+
+# Non-informed Models
+
+## Any Major
+
+```{r}
+
+model1 <- readRDS("models/any-amputation-non-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+summary(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, n_eff) %>% 
+  slice(1:8) %>% 
+  kable() %>% 
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+# MCMC trace
+mcmc_trace(model1)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model1, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model1)
+
+```
+
+
+## Major Amputation
+
+```{r}
+
+model1 <- readRDS("models/any-amputation-non-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+summary(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, n_eff) %>% 
+  slice(1:8) %>% 
+  kable() %>% 
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+# MCMC trace
+mcmc_trace(model1)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model1, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model1)
+
+```
+
+# Informed Models
+
+## Any Amputation
+
+```{r}
+
+model1 <- readRDS("models/any-amputation-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+summary(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, n_eff) %>% 
+  slice(1:8) %>% 
+  kable() %>% 
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+# MCMC trace
+mcmc_trace(model1)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model1, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model1)
+
+```
+
+## Major Amputation
+
+```{r}
+
+model1 <- readRDS("models/major-amputation-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+summary(model1) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, n_eff) %>% 
+  slice(1:8) %>% 
+  kable() %>% 
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+# MCMC trace
+mcmc_trace(model1)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model1, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model1)
+
+```

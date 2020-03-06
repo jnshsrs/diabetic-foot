@@ -1,0 +1,371 @@
+---
+title: "Appendix"
+author: "Jens Hüsers"
+date: "3/6/2020"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+  fig_width: 6 
+  fig_height: 4 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+knitr::opts_chunk$set(echo = TRUE,  
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE,
+                      out.width = '100%',
+                      fig.pos = 'center')
+
+set.seed(2430024)
+
+date <- lubridate::now()
+format(date, "%a, %d. %B %Y")
+
+# Load Packages
+library(broman)
+library(tidyverse)
+library(knitr)
+library(googlesheets4)
+library(scales)
+library(ggpubr)
+library(magick)
+library(gridExtra)
+library(bayesplot)
+
+predictors <- c("Perfusion", "Extend", "Depth", "Infection", "Sensation", "Age", "Gender")
+
+```
+
+
+```{r}
+# Load MCMC samples
+
+files <- dir("models")
+file <- files[grepl(x = files, pattern = "RDS$")]
+filepath <- glue::glue("models/backup-mcmc/{file}")
+
+informed_any <- readRDS(filepath[1])
+noninformed_any <- readRDS(filepath[2])
+informed_major <- readRDS(filepath[3])
+noninformed_major <- readRDS(filepath[4])
+
+```
+
+# Non Informed Model for Any-Amputation
+
+```{r}
+# assign the model
+model <- noninformed_any[[4]]
+
+```
+
+
+## Effective Sample Size
+
+The effective sample size and the effective sample size in comparison to the actual sample size.
+
+```{r}
+
+summary(model) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_non = n_eff) %>% 
+  slice(1:8) %>% 
+  kable()
+
+neff_ratio(model) %>% kable()
+
+```
+
+## Autorcorrelation in the MCMC chains
+
+Autocorrelation shown with lag plots and trace plots
+
+```{r}
+
+mcmc_acf(as.matrix(model), lags = 10)
+
+style <- trace_style_np(div_alpha = .1, div_size = 0.01)
+
+mcmc_trace(as.array(model),
+                n_warmup = 500,
+                np_style = style) 
+
+```
+
+## Collinearity of the Predictors
+
+Investigtion of colliniearity with scatter- and hex plots.
+
+```{r}
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("scatter"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("hex"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+
+cov <- cor(as.matrix(model), method = "pearson")
+colnames(cov) <- c("ic", "p", "e", "d", "i", "s", "a", "g")
+
+diag(cov) <- NA
+max(abs(cov)[-1, -1], na.rm = TRUE)
+
+diag(cov) <- 1
+
+kable(cov)
+
+```
+
+## Posterior Predictive Checks
+
+```{r}
+
+color_scheme_set("red")
+
+ppc_dens_overlay(y = model$y,
+                 yrep = posterior_predict(model, draws = 50))
+
+``` 
+
+
+
+# Informed Model for Any-Amputation
+
+```{r}
+# assign the model
+model <- informed_any[[4]]
+
+```
+
+
+## Effective Sample Size
+
+The effective sample size and the effective sample size in comparison to the actual sample size.
+
+```{r}
+
+summary(model) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_non = n_eff) %>% 
+  slice(1:8) %>% 
+  kable()
+
+neff_ratio(model) %>% kable()
+
+```
+
+## Autorcorrelation in the MCMC chains
+
+Autocorrelation shown with lag plots and trace plots
+
+```{r}
+
+mcmc_acf(as.matrix(model), lags = 10)
+
+style <- trace_style_np(div_alpha = .1, div_size = 0.01)
+
+mcmc_trace(as.array(model),
+                n_warmup = 500,
+                np_style = style) 
+
+```
+
+## Collinearity of the Predictors
+
+Investigtion of colliniearity with scatter- and hex plots.
+
+```{r}
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("scatter"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("hex"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+
+cov <- cor(as.matrix(model), method = "pearson")
+colnames(cov) <- c("ic", "p", "e", "d", "i", "s", "a", "g")
+
+diag(cov) <- NA
+max(abs(cov)[-1, -1], na.rm = TRUE)
+
+diag(cov) <- 1
+
+kable(cov)
+
+```
+
+## Posterior Predictive Checks
+
+```{r}
+
+color_scheme_set("red")
+
+ppc_dens_overlay(y = model$y,
+                 yrep = posterior_predict(model, draws = 50))
+
+``` 
+
+
+# Non Informed Model for Major-Amputation
+
+```{r}
+# assign the model
+model <- noninformed_major[[4]]
+
+```
+
+
+## Effective Sample Size
+
+The effective sample size and the effective sample size in comparison to the actual sample size.
+
+```{r}
+
+summary(model) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_non = n_eff) %>% 
+  slice(1:8) %>% 
+  kable()
+
+neff_ratio(model) %>% kable()
+
+```
+
+## Autorcorrelation in the MCMC chains
+
+Autocorrelation shown with lag plots and trace plots
+
+```{r}
+
+mcmc_acf(as.matrix(model), lags = 10)
+
+style <- trace_style_np(div_alpha = .1, div_size = 0.01)
+
+mcmc_trace(as.array(model),
+                n_warmup = 500,
+                np_style = style) 
+
+```
+
+## Collinearity of the Predictors
+
+Investigtion of colliniearity with scatter- and hex plots.
+
+```{r}
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("scatter"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("hex"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+
+cov <- cor(as.matrix(model), method = "pearson")
+colnames(cov) <- c("ic", "p", "e", "d", "i", "s", "a", "g")
+
+diag(cov) <- NA
+max(abs(cov)[-1, -1], na.rm = TRUE)
+
+diag(cov) <- 1
+
+kable(cov)
+
+```
+
+## Posterior Predictive Checks
+
+```{r}
+
+color_scheme_set("red")
+
+ppc_dens_overlay(y = model$y,
+                 yrep = posterior_predict(model, draws = 50))
+
+``` 
+
+
+# Informed Model for Major-Amputation
+
+```{r}
+# assign the model
+model <- informed_major[[4]]
+
+```
+
+
+## Effective Sample Size
+
+The effective sample size and the effective sample size in comparison to the actual sample size.
+
+```{r}
+
+summary(model) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_non = n_eff) %>% 
+  slice(1:8) %>% 
+  kable()
+
+neff_ratio(model) %>% kable()
+
+```
+
+## Autorcorrelation in the MCMC chains
+
+Autocorrelation shown with lag plots and trace plots
+
+```{r}
+
+mcmc_acf(as.matrix(model), lags = 10)
+
+style <- trace_style_np(div_alpha = .1, div_size = 0.01)
+
+mcmc_trace(as.array(model),
+                n_warmup = 500,
+                np_style = style) 
+
+```
+
+## Collinearity of the Predictors
+
+Investigtion of colliniearity with scatter- and hex plots.
+
+```{r}
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("scatter"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+mcmc_pairs(as.matrix(model), off_diag_fun = c("hex"),
+           off_diag_args = list(alpha = .01, size = .5))
+
+
+cov <- cor(as.matrix(model), method = "pearson")
+colnames(cov) <- c("ic", "p", "e", "d", "i", "s", "a", "g")
+
+diag(cov) <- NA
+max(abs(cov)[-1, -1], na.rm = TRUE)
+
+diag(cov) <- 1
+
+kable(cov)
+
+```
+
+## Posterior Predictive Checks
+
+```{r}
+
+color_scheme_set("red")
+
+ppc_dens_overlay(y = model$y,
+                 yrep = posterior_predict(model, draws = 50))
+
+``` 

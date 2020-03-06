@@ -1,0 +1,895 @@
+---
+title: "Analyis Bayesian Logistic Regression Models"
+author: "Jens Hüsers"
+date: "9/20/2019"
+output:
+  html_document:
+    toc: true
+editor_options: 
+  chunk_output_type: console
+---
+
+TODO:
+
+```{r setup, include=TRUE, warning=FALSE, message=FALSE}
+
+knitr::opts_chunk$set(echo = TRUE,  
+                      cache = TRUE,
+                      warning = FALSE,
+                      message = FALSE)
+
+set.seed(2430024)
+
+date <- lubridate::now()
+format(date, "%a, %d. %B %Y")
+
+# Load Packages
+library(broman)
+library(tidyverse)
+library(knitr)
+library(googlesheets4)
+library(scales)
+library(ggpubr)
+library(magick)
+library(gridExtra)
+library(bayesplot)
+
+# google sheets setup
+googlesheet_id <- "1-0mfTM47nF2etqPqvcQzp9xspgTLNHjp-cZ0E1qGAjs"
+sheets_auth(email = "jenshuesers@gmail.com")
+
+# Import Local Package "PEDIS"
+unloadNamespace("pedis")
+devtools::load_all("~/r-projects/proj_wunde/pedis/")
+
+# Data Import
+
+pedis <- pedis::read_all_pedis("~/r-projects/proj_wunde/pedis-diabetic-care/datasets")
+
+```
+
+# Descriptive Tables
+
+```{r}
+
+desc_all <- descriptive_table_all(pedis)
+
+sheets_write(data = desc_all,
+             ss = googlesheet_id,
+             sheet = "descr-table-all")
+
+desc_any <- descriptive_table_outcome(pedis, outcome = "any_amputation")
+sheets_write(data = desc_any,
+             ss = googlesheet_id,
+             sheet = "descr-table-any")
+
+desc_maj <- descriptive_table_outcome(pedis, outcome = "major_amputation")
+sheets_write(data = desc_maj,
+             ss = googlesheet_id,
+             sheet = "descr-table-maj")
+
+```
+
+# Model Setup
+
+```{r}
+
+
+# Setting model formula
+f_any <- as.formula("any_amputation ~ p + e_ordinal_5 + d + i + s + alter_bei_aufnahme + gender")
+f_major <- as.formula("major_amputation ~ p + e_ordinal_5 + d + i + s + alter_bei_aufnahme + gender")
+
+# Setting priors
+
+# Uninformed priors
+uninformed_prior <- cauchy(location = c(rep(0, 5), 0, 0), scale = c(rep(1, 5), .5, .5))
+
+source("./scripts/compute-informed-prior.R")
+
+# Informed priors (from Pickwell et al.)
+tibble(pooled_beta, pooled_sd) %>% 
+  pivot_longer(cols = c("pooled_beta", "pooled_sd")) %>% 
+  mutate(exp = exp(value)) %>% 
+  set_names("statistic", "non-exponentiated", "exponentiated")
+
+informed_prior <- cauchy(location = c(rep(pooled_beta, 5), 0, 0), scale = c(rep(pooled_sd, 5), .5, .5))
+
+# Set number of MCMC interations
+n_iter <- 8000
+seed <- 3412
+
+```
+
+# Model Fitting
+
+## Outcome: Any Amputation
+
+### Non-Informed Prior
+
+```{r, fig.height=10}
+
+# Outcome: Any Amputation
+# Approach: Non-Informed
+noninformed_any <- fit_model(n_iter = n_iter, exponentiate = FALSE, seed = seed)
+
+# Posterior Histogram with prior
+errorbar_1 <- plot(noninformed_any[[1]]) + ggtitle("Non Informed Any")
+
+# AUC Posterior
+auc_noninformed_any <- posterior_auc(model = noninformed_any,
+                                     data = pedis,
+                                     outcome = "any_amputation")
+
+```
+
+### Informed Prior
+
+```{r, fig.height=10}
+# Outcome: Any Amputation
+# Approach: Informed Prior
+
+informed_any <- fit_model(formula = f_any, prior = informed_prior, n_iter = n_iter, seed = seed)
+
+# Posterior histograms with priors
+errorbar_2 <- plot(informed_any[[1]]) + ggtitle("Informed Any")
+
+# AUC Posterior
+auc_informed_any <- posterior_auc(model = informed_any,
+                                  data = pedis,
+                                  outcome = "any_amputation")
+
+```
+
+## Outcome: Major Amputation
+
+### Non-Informed Prior
+
+```{r, fig.height=10}
+# Outcome: Any Amputation
+# Approach: Informed Prior
+
+noninformed_major <- fit_model(formula = f_major, n_iter = n_iter, seed = seed)
+
+# Posterior Histogram with priors
+errorbar_3 <- plot(noninformed_major[[1]]) + ggtitle("Non-Informed Major")
+
+# AUC Posterior
+auc_noninformed_major <- posterior_auc(model = noninformed_major,
+                                       data = pedis,
+                                       outcome = "major_amputation")
+
+```
+
+### Informed Prior
+
+```{r, fig.height=10}
+# Outcome: Major Amputation
+# Approach: Informed Prior
+informed_major <- fit_model(formula = f_major,
+                            prior = informed_prior,
+                            seed = seed,
+                            n_iter = n_iter)
+
+# Posterior histograms with priors
+errorbar_4 <- plot(informed_major[[1]]) + ggtitle("Informed Major")
+
+# AUC Posterior
+auc_informed_major <- posterior_auc(model = informed_major,
+                                    data = pedis,
+                                    outcome = "major_amputation")
+
+```
+
+# AUCs
+
+## AUC Descriptive Tables
+
+
+```{r, eval = F}
+# load stored MCMCs to save time in AUC claculation, when computation stays the same
+
+files <- dir("models")
+file <- files[grepl(x = files, pattern = "RDS$")]
+filepath <- paste0("models/", file)
+
+noninformed_any <- readRDS(filepath[1])
+informed_any <- readRDS(filepath[2])
+noninformed_major <- readRDS(filepath[3])
+informed_major <- readRDS(filepath[4])
+
+```
+
+
+```{r}
+auc <- list("Any Amputation - Non-Informed" = auc_noninformed_any, 
+            "Any Amputation - Informed" = auc_informed_any, 
+            "Major Amputation - Non-Informed" = auc_noninformed_major,
+            "Major Amputation - Informed" = auc_informed_any)
+
+# Descriptive Summary
+auc_summarised <- map(auc, auc_summary) %>% 
+  bind_rows(.id = "Model") %>% 
+  mutate(HDI = paste0("[", myround(lower, 3), "-", myround(upper, 3), "]")) %>% 
+  mutate_if(is.numeric, myround, 3)
+
+auc_summarised %>%
+  select(Model, med, HDI) %>% 
+  kable(digits = 3)
+
+sheets_write(data = auc_summarised,
+             ss = googlesheet_id,
+             sheet = "auc")
+```
+
+## AUC Posterior Distributions
+
+```{r}
+
+# Plot Posterior AUC Distributions
+
+posterior_auc_distributions <- auc %>% map(hist, bw = .005) 
+
+get_y_axis <- function(plt_obj) ggplot_build(plt_obj)$layout$panel_scales_y[[1]]$range$range
+
+y_max <- map_df(posterior_auc_distributions, get_y_axis) %>% 
+  pivot_longer(cols = names(.)) %>% 
+  pull(value) %>% 
+  max %>% 
+  `+`(2)
+
+x_min <- min(map_dbl(auc, quantile, .02)) 
+x_max <- max(map_dbl(auc, max)) + .01
+
+x_axis <- scale_x_continuous(name = "AUC value",
+                             limits = c(x_min, x_max),
+                             breaks = seq(0, 1, by = .02))
+
+y_axis <- scale_y_continuous(name = "Density", limits = c(0, y_max))
+
+g <- ggpubr::ggarrange(
+  posterior_auc_distributions[[1]] + 
+    x_axis + 
+    y_axis +
+    rremove("x.title"),
+  posterior_auc_distributions[[2]] + 
+    x_axis + 
+    y_axis +
+    rremove("x.title") +
+    rremove("y.title"),
+  posterior_auc_distributions[[3]] +
+    x_axis + 
+    y_axis,
+  posterior_auc_distributions[[4]] +
+    x_axis + 
+    y_axis +
+    rremove("y.title"),
+  ncol = 2, 
+  nrow = 2,
+  labels = c("A", "B", "C", "D"))
+
+g
+
+ggsave(plot = g,
+       filename = "img/posterior-auc-values.png",
+       unit = "cm", width = 30, height = 30,
+       dpi = 320,
+       scale = .5)
+
+```
+
+# Posterior Parameter Distribution 
+
+## Errorbars
+
+```{r, fig.height=10, fig.width=10}
+
+posterior_errorbars <- gridExtra::grid.arrange(
+  errorbar_1 + scale_y_continuous(breaks = 0:10) + ggtitle("Any Amputation - Non-Informed."),
+  errorbar_2 + scale_y_continuous(breaks = 0:10) + ggtitle("Any Amputation - Informed"),
+  errorbar_3 + scale_y_continuous(breaks = 0:10) + ggtitle("Major Amputation - Non-Informed"),
+  errorbar_4 + scale_y_continuous(breaks = 0:10) + ggtitle("Major Amputation - Informed"))
+
+ggsave(posterior_errorbars,
+       filename = "img/posterior-parameter-errorbars.png",
+       unit = "cm",
+       width = 20,
+       height = 20)
+
+```
+
+## Descriptive Statistics
+
+```{r}
+
+models <- list("Any Amputation - Non-Informed" = noninformed_any, 
+               "Any Amputation - Informed" = informed_any, 
+               "Major Amputation - Non-Informed" = noninformed_major,
+               "Major Amputation - Informed" = informed_major) 
+
+summary_models <- map(models, summary_coefs) %>% 
+  map(. %>% select(-model)) %>% 
+  bind_rows(.id = "model") %>% 
+  unite(col = "beta_coefficient",
+        c("map_bayes_non-exponentiated", "hdi_char_non-exponentiated"),
+        sep = " ") %>% 
+  unite(col = "odds_ratio",
+        c("map_bayes_exponentiated", "hdi_char_exponentiated"),
+        sep = " ")
+ 
+sheets_write(data = summary_models,
+             ss = googlesheet_id,
+             sheet = "coefficients")
+
+```
+
+## Parameter Posterior Distributions
+
+```{r}
+
+xlimit <- c(-1.2, 3)
+ylimit <- c(0, 2.4)
+
+hist_posterior <- models %>% 
+  map(pluck, 3) %>% 
+  map(function(x) x +
+        # scale_x_continuous("Value of Coefficients", limits = c(-1.2, 3)) +
+        theme(strip.text = element_text(size = 8),
+              axis.text = element_text(size = 8)) +
+        rremove("x.title") +
+        rremove("y.title") +
+        coord_cartesian(ylim = ylimit)
+  )
+  
+hist_plot <- ggarrange(hist_posterior[[1]],
+                       hist_posterior[[2]],
+                       hist_posterior[[3]],
+                       hist_posterior[[4]],
+                       labels = LETTERS[1:4],
+                       ncol = 4)
+
+hist_plot
+
+ggsave(plot = hist_plot,
+       filename = "img/posterior-beta-values.png",
+       unit = "cm", width = 22, height = 18,
+       dpi = 300)
+
+```
+
+# Save RDS (Posterior Models)
+
+```{r save-models, eval = F}
+
+filename <- names(models) %>% 
+  tolower %>% 
+  gsub(pattern = "\\s+", replacement = " ") %>% 
+  gsub(pattern = "\\s{1}", replacement = "-") %>% 
+  gsub(pattern = "---", replacement = "-") %>% 
+  paste0("models/", ., ".RDS")
+
+map2(models, filename, saveRDS)
+
+```
+
+# Analysing the coefficients for major non-informed
+
+In this section, I compute the proportion of posterior coefficient values that are smaller than 0.
+
+The results show that most posterior values are postive. 
+This fact supports the claim of a postive association between some predictors (PED)
+
+```{r}
+
+files <- dir("models")
+file <- files[grepl(x = files, pattern = "major.*non.*RDS$")]
+
+major_non_informed <- readRDS(paste0("models/", file))
+
+prop_below_zero <- major_non_informed[[2]] %>% 
+  mutate_all(function(x) x < 0) %>% 
+  colSums()
+
+prop_below_zero / 3e4
+
+```
+
+
+
+# Posterior Distribution of Predictions
+
+Exemplary predictions of 6 month amputation incidence
+
+```{r}
+
+mat_mcmc <- noninformed_any[[2]] %>% as.matrix()
+
+x1 <- mat_mcmc %*% c(intercept = 1, p = 2, e = 2, d = 1, i = 1, s = 1, age = 60, gender = 1) %>% 
+  c %>%
+  enframe(name = NULL) 
+  
+x2 <- mat_mcmc %*% c(intercept = 1, p = 3, e = 3, d = 3, i = 1, s = 1, age = 60, gender = 1) %>% 
+  c %>% 
+  enframe(name = NULL) 
+
+data <- bind_rows(list("Patient with low PEDIS classification" = x1,
+                       "Patient with high PEDIS classification" = x2),
+                  .id = "patient") %>% 
+  mutate(value = 1 / (1 + exp(-1 * value))) %>% 
+  mutate(patient = factor(x = patient, 
+                          levels = c("Patient with low PEDIS classification",
+                                     "Patient with high PEDIS classification"),
+                          labels = c("PEDIS classification: P2, E2, D1, I1, S1",
+                                     "PEDIS classification: P3, E3, D3, I1, S1"),
+                          ordered = TRUE))
+
+mean_summary <- data %>% 
+  group_by(patient) %>% 
+  summarise(avg = mean(value), med = median(value))
+
+predictions_summary <- data %>% 
+  group_by(patient) %>% 
+  nest() %>% 
+  mutate(data = map(data, function(df) pull(df, 1))) %>% 
+  mutate(hdi = map(data, function(x) tidy_hdi(x)),
+         med = map_dbl(data, function(x) median(x)),
+         avg = map_dbl(data, function(x) mean(x))) %>% 
+  unnest(cols = c(hdi)) %>% 
+  select(-data)
+
+predictions_summary %>% 
+  ggplot(aes(xmin = lower, xmax = upper, x = med, y = 1, group = patient)) +
+  geom_histogram(aes(x = value,
+                     y = ..density..,
+                     fill = patient),
+                 binwidth = .01,
+                 data = data,
+                 inherit.aes = FALSE) +
+  geom_errorbarh(size = 1.5) +
+  geom_point(shape = 20, size = 6) +
+  scale_y_continuous("Density") +
+  scale_x_continuous("Predicted risk (six-month amputation incidence)", 
+                     breaks = seq(0, 1, by = .2),
+                     limits = c(-.1, 1.05)) +
+  ggtitle(label = "Posterior Distribution of Predictions",
+          subtitle = "Predictions based on any-amputation risk model") +
+  scale_fill_manual(values = c("grey50", "grey70")) +
+  scale_color_manual(values = c("black", "black"), guide = F) +
+  theme_minimal() +
+  theme(title = element_text(size = 14),
+        legend.position = "bottom",
+        legend.direction = "vertical",
+        legend.title = element_blank(), 
+        text = element_text(size = 18))
+
+ggsave(filename = "./img/post-amp-any-prob.png", units = "cm", width = 20, height = 20)
+
+```
+
+```{r}
+
+mat_mcmc <- noninformed_major[[2]] %>% as.matrix()
+
+x1 <- mat_mcmc %*% c(intercept = 1, p = 2, e = 2, d = 1, i = 1, s = 1, age = 60, gender = 1) %>% 
+  c %>%
+  enframe(name = NULL) 
+
+x2 <- mat_mcmc %*% c(intercept = 1, p = 3, e = 3, d = 3, i = 1, s = 1, age = 60, gender = 1) %>% 
+  c %>% 
+  enframe(name = NULL) 
+
+data <- bind_rows(list("Patient with low PEDIS Score" = x1,
+                       "Patient with high PEDIS Score" = x2),
+                  .id = "patient") %>% 
+  mutate(value = 1 / (1 + exp(-1 * value))) %>% 
+  mutate(patient = factor(x = patient, 
+                          levels = c("Patient with low PEDIS Score", "Patient with high PEDIS Score"),
+                          ordered = TRUE))
+
+mean_summary <- data %>% 
+  group_by(patient) %>% 
+  summarise(avg = mean(value))
+
+data %>% 
+  ggplot(aes(x = value, y = ..density.., fill = patient)) +
+  geom_histogram(binwidth = .01) +
+  scale_y_continuous("Density") +
+  scale_x_continuous("Probability", limits = c(-0.05, .5)) +
+  geom_vline(data = mean_summary,
+             aes(xintercept = avg, col = patient),
+             linetype = 5, 
+             size = 1.5) +
+  ggtitle("Histogram of Posterior Amputation Probability") +
+  scale_fill_manual(values = c("grey30", "grey50")) +
+  scale_color_manual(values = c("black", "black"), guide = F) +
+  theme_minimal() +
+  theme(legend.position = "bottom",
+        legend.title = element_blank())
+
+ggsave(filename = "./img/post-amp-major-prob.png", units = "cm", width = 22, height = 22)
+
+```
+
+# Appendix
+
+## MCMC Ketten
+
+```{r, eval=FALSE}
+
+plot_mcmc <- function(model, color_scheme = "gray", outcome = "any_amputation") {
+  
+  posterior <- as.array(model)
+  
+  color_scheme_set(color_scheme)
+  
+  bayesplot::mcmc_trace(posterior, pars = c("p", "e_ordinal_5", "d", "i", "s"),
+                        facet_args = list(ncol = 1, strip.position = "top")) +
+    theme_pubr() +
+    scale_y_continuous(limits = c(-0.6, 2)) +
+    theme(legend.position = "left")
+
+  ggsave(filename = paste0("img/mcmc-trace-posterior-", outcome, ".png"))
+         
+}
+
+models <- list(noninformed_any, informed_any, noninformed_major, informed_major)
+models_title <- c("amp-any-noninfo", "amp-any-info", "amp-maj-noninfo", "amp-major-info") 
+
+map2(models, models_title, function(m, col) plot_mcmc(pluck(m, 4), outcome = col))
+
+```
+
+```{r, eval = F}
+
+hypos <- brms::hypothesis(noninformed_any[[4]], "d > 0")
+sum_any <- summary(noninformed_any[[4]], digits = 3)
+
+```
+
+## AUC Differences
+
+```{r}
+
+# Among uninformative priors
+auc_df <- auc %>% 
+  enframe %>% 
+  unnest(value)
+
+auc_df %>% 
+  group_by(name) %>% 
+  summarise(avg = median(value))
+
+cohen <- auc_df %>% 
+  filter(grepl(pattern = "Non", x = name)) %>% 
+  effsize::cohen.d(value ~ name, data = .) %>% 
+  pluck("estimate")
+
+delta <- auc_df %>% 
+  filter(grepl(pattern = "Non", x = name)) %>%
+  group_by(name) %>% 
+  summarise(avg = mean(value)) %>% 
+  pull(avg) %>% 
+  diff
+
+enframe(c(cohen = cohen, delta = delta)) %>% 
+  kable(digits = 3) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+```
+```{r}
+
+cohen <- auc_df %>% 
+  filter(grepl(pattern = "Any", x = name)) %>%
+  effsize::cohen.d(value ~ name, data = .) %>% 
+  pluck("estimate")
+
+delta <- auc_df %>% 
+  filter(grepl(pattern = "Any", x = name)) %>%
+  group_by(name) %>% 
+  summarise(avg = mean(value)) %>% 
+  pull(avg) %>% 
+  diff
+
+enframe(c(cohen = cohen, delta = delta)) %>% 
+  kable(digits = 3) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+```
+
+```{r}
+
+cohen <- auc_df %>% 
+  filter(grepl(pattern = "Major", x = name)) %>%
+  effsize::cohen.d(value ~ name, data = .) %>% 
+  pluck("estimate")
+
+delta <- auc_df %>% 
+  filter(grepl(pattern = "Major", x = name)) %>%
+  group_by(name) %>% 
+  summarise(avg = mean(value)) %>% 
+  pull(avg) %>% 
+  diff
+
+enframe(c(cohen = cohen, delta = delta)) %>% 
+  kable(digits = 3) %>%
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+```
+
+## Collinearity
+
+```{r}
+pedis_class <- pedis %>% select(p, e_ordinal_5, d, i, s)
+cor(pedis_class, method = "kendall")
+
+chains <- map(models, pluck, 2)
+
+chains <- chains %>% 
+  map(select, c("Perfusion", "Extend", "Depth", "Infection", "Sensation")) 
+
+pred <- c("Perfusion", "Extend", "Depth", "Infection", "Sensation")
+bayesplot::mcmc_scatter(as.matrix(chains[[1]]), pars = pred[1:2], alpha = .2)
+scatter_style_np(div_color = "red", div_shape = 16, div_size = 2.5,
+  div_alpha = .1)
+
+bayesplot::mcmc_pairs(as.matrix(chains[[1]][1:100, ]), pars = pred[1:2])
+
+library(GGally)  
+ggpairs(chains[[1]][1:100, ])
+
+
+```
+
+# Univariate Association
+
+```{r}
+
+outcome <- c("any_amputation", "major_amputation")
+predictors <- c("p", "e_ordinal_5", "d", "i", "s", "alter_bei_aufnahme", "gender")
+
+formulas <- expand.grid(outcome = outcome, predictors = predictors) %>% 
+  as_tibble() %>% 
+  unite(col = formula, c("outcome", "predictors"), sep = " ~ ") %>% 
+  pull(1) %>% 
+  as.list()
+
+
+univar_association <- function(formula) {
+  
+  set.seed(1231238)
+  
+  model <- rstanarm::stan_glm(formula = as.formula(formula),
+                              family = "binomial",
+                              data = pedis,
+                              prior = cauchy(location = 0, scale = 0.5))
+  
+  intervals <- hdi(x = model, ci = .95) %>% 
+    as.tibble() %>% 
+    filter(!grepl(pattern = "Intercept", x = Parameter)) 
+  
+  params <- as.matrix(x = model) %>% 
+    as.tibble() %>% 
+    select(2) %>% 
+    summarise_all(list(odds_ratio = function(x) exp(median(x)),
+                       coefficient = function(y) median(y)))
+  
+  posterior <- as.matrix(model) %>% 
+    as.tibble %>% 
+    rename(values = 2) %>% 
+    select(2) %>% 
+    nest(data = everything())
+  
+  outcome <- str_extract(string = formula, pattern = "(.*)_amputation")
+  outcome <- enframe(outcome, name = "outcome")
+  
+  bind_cols(params, intervals, posterior, outcome)
+  
+}
+
+univariate_coefficients <- map_df(formulas, univar_association)
+
+
+
+```
+
+```{r out.width='100%'}
+lvls <- c("p", "e_ordinal_5", "d", "i", "s", "alter_bei_aufnahme", "gender")
+lbls <- c("Perfusion", 
+          "Extent", 
+          "Depth", 
+          "Infection", 
+          "Sensation", 
+          "Age", 
+          "Gender")
+
+univar_analysis <- univariate_coefficients %>% 
+  arrange(value) %>% 
+  mutate(Parameter = factor(x = Parameter, 
+                            levels = lvls,
+                            labels = lbls,
+                            ordered = TRUE)) %>% 
+  mutate(value = factor(x = value, 
+                        levels = c("any_amputation", "major_amputation"), 
+                        labels = c("Any Amputation", "Major Amputation"),
+                        ordered = TRUE)) %>% 
+  mutate(CI_low_exp = exp(CI_low), CI_high_exp = exp(CI_high))
+  
+univar_analysis %>% 
+  ggplot(aes(x = forcats::fct_rev(Parameter), y = coefficient, ymin = CI_low, ymax = CI_high)) +
+  geom_point() +
+  geom_errorbar(width = .2) +
+  geom_abline(intercept = 0, slope = 0, size = .2, linetype = 2) +
+  facet_wrap(~ value, ncol = 1) +
+  coord_flip(clip = "off") +
+  scale_y_continuous("Coefficients", breaks = seq(-1, 3, by = .5)) +
+  theme_bw() +
+  theme(axis.title.y = element_blank()) +
+  ggtitle("Coefficients of Univariate Logistic Models")
+
+# Din A4 210 × 297 millimeters (Half)
+ggsave(filename = "img/appendix-univar-models.png",
+       units = "cm",
+       height = 29.7 / 2, width = 21.0 / 2, 
+       dpi = 300)
+
+univar_analysis <- univar_analysis %>% 
+  mutate_if(is.numeric, sprintf, fmt = "%1.3f") %>% 
+  mutate(coef_hdi = glue::glue("{coefficient} [{CI_low} to {CI_high}]")) %>% 
+  mutate(or_hdi = glue::glue("{odds_ratio} [{CI_low_exp} to {CI_high_exp}]")) %>% 
+  mutate_at("coef_hdi", as.character) %>% 
+  select(Parameter, value, coef_hdi, or_hdi, starts_with("CI"), odds_ratio, coefficient)
+
+sheets_write(data = univar_analysis %>% arrange(value),
+             ss = googlesheet_id,
+             sheet = "univar-analysis")
+
+```
+
+## Model Diagnostics
+
+
+We created Bayesian Logistic Regression models using the open-source **rstanarm** package for the statistical programming language R.
+
+Our model analyzes the relationship between the PEDIS-system, a clinical classification to describe characteristics of Diabetic Foot Ulcers, and amputation, which results from such ulcers as a severe complication. 
+
+We used two distinct amputation definitions: 
+
+1. Any Amputation excluding the lesser toes (This definition entails minor and major amputation, whereas major amputations are on the level of the lower limb or even more proximal, e.g., knee or thigh). 
+
+Furthermore, we scrutinized the impact of an informed prior compared to a non-informed one.
+
+As a result, we created four distinct model.
+
+1. Non-informed with any-amputation
+2. Non-informed with major-amputation
+3. Informed with any-amputation
+4. Informed with major-amputation
+
+### Non-informed Models
+
+#### Any Major
+
+```{r}
+
+model_any_non <- readRDS("models/any-amputation-non-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+ess_any_non <- summary(model_any_non) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_non = n_eff) %>% 
+  slice(1:8)
+
+# MCMC trace
+mcmc_trace(model_any_non)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model_any_non, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model_any_non)
+
+```
+
+
+#### Any Amputation Informed
+
+```{r}
+
+model_major_non <- readRDS("models/major-amputation-non-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+ess_major_non <- summary(model_major_non) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, major_non = n_eff) %>% 
+  slice(1:8)
+
+# MCMC trace
+mcmc_trace(model_major_non)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model_major_non, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model_major_non)
+
+```
+
+### Informed Models
+
+#### Any Amputation
+
+```{r}
+
+model_any_inf <- readRDS("models/any-amputation-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+ess_any_inf <- summary(model_any_inf) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, any_inf = n_eff) %>% 
+  slice(1:8) 
+
+# MCMC trace
+mcmc_trace(model_any_inf)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model_any_inf, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model_any_inf)
+
+```
+
+#### Major Amputation
+
+```{r}
+
+model_major_inf <- readRDS("models/major-amputation-informed.RDS") %>% pluck(4)
+
+color_scheme_set("viridis")
+
+# Effect size
+ess_major_inf <- summary(model_major_inf) %>% 
+  as.data.frame() %>% 
+  as_tibble(rownames = "Predictors") %>% 
+  select(Predictors, major_inf = n_eff) %>% 
+  slice(1:8)
+
+# MCMC trace
+mcmc_trace(model_major_inf)
+
+# Scatterplots of MCMC draws
+mcmc_pairs(x = model_major_inf, pars = c("p", "e_ordinal_5", "d", "i", "s"))
+
+
+# Posterior predictive check
+pp_check(model_major_inf)
+
+```
+
+```{r}
+
+ess <- list(ess_any_non, ess_any_inf, ess_major_non, ess_major_inf) %>% 
+  reduce(inner_join, by = "Predictors")
+
+ess %>% 
+  kable() %>% 
+  kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
+
+sheets_write(data = ess,
+             ss = googlesheet_id,
+             sheet = "ess")
+
+
+```
+
