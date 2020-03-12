@@ -46,6 +46,9 @@ devtools::load_all("~/r-projects/proj_wunde/pedis/")
 
 pedis <- pedis::read_all_pedis("~/r-projects/proj_wunde/pedis-diabetic-care/datasets")
 
+# Load models
+# Should the final mcmc chains used stored on the disk?
+load_model <- TRUE
 ```
 
 # Descriptive Tables
@@ -347,6 +350,7 @@ hist_plot <- ggarrange(hist_posterior[[1]],
                        labels = LETTERS[1:4],
                        ncol = 4)
 
+
 hist_plot
 
 ggsave(plot = hist_plot,
@@ -378,12 +382,39 @@ In this section, I compute the proportion of posterior coefficient values that a
 The results show that most posterior values are postive. 
 This fact supports the claim of a postive association between some predictors (PED)
 
-```{r}
+```{r, eval=TRUE}
 
-files <- dir("models")
-file <- files[grepl(x = files, pattern = "major.*non.*RDS$")]
+if(load_models) {
+  noninformed_any <- readRDS("models/any-amputation-non-informed.RDS")
+  informed_any <- readRDS("models/any-amputation-informed.RDS")
+  noninformed_major <- readRDS("models/major-amputation-non-informed.RDS")
+  informed_major <- readRDS("models/major-amputation-informed.RDS")
+}
 
-major_non_informed <- readRDS(paste0("models/", file))
+auc_noninformed_any <- posterior_auc(model = noninformed_any,
+                                     data = pedis,
+                                     outcome = "any_amputation")
+
+auc_informed_any <- posterior_auc(model = informed_any,
+                                     data = pedis,
+                                     outcome = "any_amputation")
+
+auc_noninformed_major <- posterior_auc(model = noninformed_major,
+                                     data = pedis,
+                                     outcome = "major_amputation")
+
+auc_informed_major <- posterior_auc(model = informed_major,
+                                     data = pedis,
+                                     outcome = "major_amputation")
+
+auc <- list("Any Amputation - Non-Informed" = auc_noninformed_any, 
+            "Any Amputation - Informed" = auc_informed_any, 
+            "Major Amputation - Non-Informed" = auc_noninformed_major,
+            "Major Amputation - Informed" = auc_informed_any)
+
+auc_df <- auc %>% 
+  enframe %>% 
+  unnest(value)
 
 prop_below_zero <- major_non_informed[[2]] %>% 
   mutate_all(function(x) x < 0) %>% 
@@ -575,6 +606,7 @@ enframe(c(cohen = cohen, delta = delta)) %>%
   kableExtra::kable_styling(bootstrap_options = "striped", full_width = F)
 
 ```
+
 ```{r}
 
 cohen <- auc_df %>% 
@@ -774,7 +806,7 @@ model_any_non <- readRDS("models/any-amputation-non-informed.RDS") %>% pluck(4)
 
 color_scheme_set("viridis")
 
-# Effect size
+# Effect sample size
 ess_any_non <- summary(model_any_non) %>% 
   as.data.frame() %>% 
   as_tibble(rownames = "Predictors") %>% 
@@ -802,7 +834,7 @@ model_major_non <- readRDS("models/major-amputation-non-informed.RDS") %>% pluck
 
 color_scheme_set("viridis")
 
-# Effect size
+# Effective sample size
 ess_major_non <- summary(model_major_non) %>% 
   as.data.frame() %>% 
   as_tibble(rownames = "Predictors") %>% 
@@ -831,7 +863,7 @@ model_any_inf <- readRDS("models/any-amputation-informed.RDS") %>% pluck(4)
 
 color_scheme_set("viridis")
 
-# Effect size
+# Effective sample size
 ess_any_inf <- summary(model_any_inf) %>% 
   as.data.frame() %>% 
   as_tibble(rownames = "Predictors") %>% 
@@ -858,7 +890,7 @@ model_major_inf <- readRDS("models/major-amputation-informed.RDS") %>% pluck(4)
 
 color_scheme_set("viridis")
 
-# Effect size
+# Effective sample size
 ess_major_inf <- summary(model_major_inf) %>% 
   as.data.frame() %>% 
   as_tibble(rownames = "Predictors") %>% 

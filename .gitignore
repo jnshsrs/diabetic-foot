@@ -2,6 +2,8 @@ story files
 .Rhistory
 .Rapp.history
 
+img/backup
+
 # Session Data files
 .RData
 
@@ -40,7 +42,6 @@ vignettes/*.pdf
 
 
 # data files
-*.csv
 *.feather
 
 *Rproj
@@ -52,3 +53,4 @@ vignettes/*.pdf
 
 
 
+packrat/lib*/
